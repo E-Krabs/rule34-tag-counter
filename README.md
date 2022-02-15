@@ -9,7 +9,17 @@ This project fetches data from rule34 provided via the <a href="https://api.rule
 
 <hr>
 <ul>
-  <li><code>updated_fetchall.py</code> Dumps https://api.rule34.xxx. Dumps as much as it can (~5,118,998). Takes ~5 hours to complete.<br>
+  <li><code>fetchall.py</code> Dumps https://api.rule34.xxx. Dumps as much as it can (~5,118,998). Takes ~5 hours to complete.<br>
+</ul>
+
+<h3><b>How To Use?</b></h3>
+<ul>
+  <li>Cd to the repo: <code>cd C:/Users/User/Downloads/rule34-tag-counter-main</code></li>
+  <li>Install requirements: <code>pip install -r requirements.txt</code></li>
+  <li>Generate data-set: <code>python3 fetchall.py</code> (This will take many hours. Tqdm will let you know with a progress bar.)</li>
+  <li>#in progress# Generate <code>report</code>: <code>python3 sqlite_count.py</code> (Should only take ~3min)</li>
+  <li>profit?</li>
+</ul>
 
 <h3><b>Requirements:</b></h3>
 <ul>
