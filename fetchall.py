@@ -1,14 +1,15 @@
+from datetime import datetime
+import json
 import os
 import requests
 from requests.auth import HTTPBasicAuth
-import time
-import xmltodict
-import json
-from datetime import datetime
 import sqlite3
+import time
 from tqdm import tqdm
-from xml.etree import ElementTree
+import xmltodict
+
 url = 'https://api.rule34.xxx/index.php?page=dapi&s=post&q=index&limit=1000&json=0'
+
 pid = 0
 seen = {}
 cwd = os.getcwd()
@@ -16,53 +17,60 @@ year = datetime.now().year
 month = datetime.now().month
 day = datetime.now().day
 columns = ['height', 'score', 'file_url', 'parent_id', 'sample_url', 'sample_width', 
-	'sample_height', 'preview_url', 'rating', 'tags', 'id', 'width', 'change'
-	'md5', 'creator_id', 'has_children', 'created_at', 'status', 'sorce'
+	'sample_height', 'preview_url', 'rating', 'tags', 'id', 'width', 'change',
+	'md5', 'creator_id', 'has_children', 'created_at', 'status', 'source',
 	'has_notes', 'has_comments', 'preview_width', 'preview_height']
 
 db = sqlite3.connect('{}/rule34-total-{}-{}-{}.sqlite'.format(cwd, year, month, day))
 c = db.cursor() 
 c.execute('CREATE TABLE IF NOT EXISTS rule34 ({})'.format(' text,'.join(columns)))
+c.execute('DELETE FROM rule34')
 
 def insert_sqlite(values):
 	insert_query = 'INSERT INTO rule34 ({}) VALUES (?{})'.format(','.join(columns), ',?'*(len(columns)-1))
 	c.executemany(insert_query, values)
 
 def get_posts_count():
-	r = requests.get('{}'.format(url))
+	try:
+		r = requests.get(url)
+	except Exception as e:
+		print(e)
+		exit()
 	if r.status_code != 200:
 		print(r.status_code)
 		exit()
 
-	data = json.dumps(xmltodict.parse(r.content))
-	#with open('o.txt', 'w') as o:
-	#	o.write(data) 
-	data = json.loads(data)
-	return data['posts']['@count']
+	data = json.loads(json.dumps(xmltodict.parse(r.content, attr_prefix='')))
+	return data['posts']['count']
 
 count = get_posts_count()
 
 with tqdm(total=int(count)/1000+1) as pbar:
 	while True:
-		r = requests.get('{}&pid={}'.format(url, pid))
-		if r.status_code != 200:
-			print(r.status_code)
-			time.sleep(15)
+		try:
+			r = requests.get('{}&pid={}'.format(url, pid))
+		except Exception as e:
+			print('\n'+str(e))
+			time.sleep(60)
 			continue
-		s = time.time()
+		if r.status_code != 200:
+			print('\n'+str(r.status_code))
+			time.sleep(60)
+			continue
 
-		data = json.loads(json.dumps(xmltodict.parse(r.content)))
+		s = time.time()
+		data = json.loads(json.dumps(xmltodict.parse(r.content, attr_prefix='')))
 		value = []
 		values = []
 		for post in data['posts']['post']:
-			_id = post['@id']
-			md5 = post['@md5']
+			#_id = post['id']
+			md5 = post['md5']
 			if md5 in seen:
 				continue
 			seen[md5] = 1
 			#print(_id)
-			for item in columns:
-				value.append(json.dumps(dict(post).get(item)))
+			for column in columns:
+				value.append(dict(post).get(column))
 			values.append(list(value))
 			value.clear()
 
@@ -76,4 +84,4 @@ with tqdm(total=int(count)/1000+1) as pbar:
 
 db.commit()
 c.close()
-print('fetched {} records, with {} requests'.format(len(seen), start_id/320+1))
+print('\nfetched {} records, with {} requests'.format(len(seen), count/1000+1))
