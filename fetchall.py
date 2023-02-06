@@ -7,10 +7,12 @@ import sqlite3
 import time
 from tqdm import tqdm
 import xmltodict
+from xml.parsers.expat import ExpatError
 
-url = 'https://api.rule34.xxx/index.php?page=dapi&s=post&q=index&limit=1000&json=0'
+#https://rule34.xxx/index.php?page=forum&s=view&id=4216&pid=345
+#using ?tag=id: rather than ?pid= beacuse pid requests return api abuse error
+url = 'https://api.rule34.xxx//index.php?page=dapi&q=index&s=post&pid=0&limit=1000'
 
-pid = 0
 seen = {}
 cwd = os.getcwd()
 year = datetime.now().year
@@ -24,31 +26,47 @@ columns = ['height', 'score', 'file_url', 'parent_id', 'sample_url', 'sample_wid
 db = sqlite3.connect('{}/rule34-total-{}-{}-{}.sqlite'.format(cwd, year, month, day))
 c = db.cursor() 
 c.execute('CREATE TABLE IF NOT EXISTS rule34 ({})'.format(' text,'.join(columns)))
-c.execute('DELETE FROM rule34')
+#c.execute('DELETE FROM rule34')
 
 def insert_sqlite(values):
 	insert_query = 'INSERT INTO rule34 ({}) VALUES (?{})'.format(','.join(columns), ',?'*(len(columns)-1))
 	c.executemany(insert_query, values)
+	db.commit() #commit every time instead of bulk incase of failure
 
 def get_posts_count():
 	try:
 		r = requests.get(url)
 	except Exception as e:
-		print(e)
+		print('\n'+str(e))
 		exit()
 	if r.status_code != 200:
-		print(r.status_code)
+		print('\n'+str(r.status_code))
 		exit()
 
 	data = json.loads(json.dumps(xmltodict.parse(r.content, attr_prefix='')))
 	return data['posts']['count']
 
-count = get_posts_count()
+def get_start_id():
+	try:
+		r = requests.get(url)
+	except Exception as e:
+		print('\n'+str(e))
+		exit()
+	if r.status_code != 200:
+		print('\n'+str(r.status_code))
+		exit()
 
-with tqdm(total=int(count)/1000+1) as pbar:
+	data = json.loads(json.dumps(xmltodict.parse(r.content, attr_prefix='')))
+	for post in data['posts']['post']:
+		return post['id']
+
+count = int(get_posts_count()) #separate total posts count from id because id does not consider deleted posts
+start_id = #int(get_start_id())
+error_num = 1
+with tqdm(total=count/1000+1) as pbar:
 	while True:
 		try:
-			r = requests.get('{}&pid={}'.format(url, pid))
+			r = requests.get('{}&tags=id:%3C{}'.format(url, start_id))
 		except Exception as e:
 			print('\n'+str(e))
 			time.sleep(60)
@@ -59,29 +77,45 @@ with tqdm(total=int(count)/1000+1) as pbar:
 			continue
 
 		s = time.time()
-		data = json.loads(json.dumps(xmltodict.parse(r.content, attr_prefix='')))
+		try:
+			data = json.loads(json.dumps(xmltodict.parse(r.content, attr_prefix='')))
+		except Exception as e:
+			print('\n'+str(e)+'\nSkipped ID {} through {}'.format(start_id, start_id-1000))
+			start_id-= 1000
+			error_num += 1
+			continue
+
 		value = []
 		values = []
-		for post in data['posts']['post']:
-			#_id = post['id']
-			md5 = post['md5']
-			if md5 in seen:
-				continue
-			seen[md5] = 1
-			#print(_id)
-			for column in columns:
-				value.append(dict(post).get(column))
-			values.append(list(value))
-			value.clear()
+		try:
+			for post in data['posts']['post']:
+				md5 = post['md5']
+				if md5 in seen:
+					continue
+				seen[md5] = 1
+				for column in columns:
+					value.append(dict(post).get(column))
+				values.append(list(value))
+				value.clear()
+		except Exception as e:
+			print('\n'+str(e))
+			time.sleep(60)
+			continue
 
 		if len(values) == 0:
 			break
 
 		insert_sqlite(values)
-		time.sleep(1-(time.time()-s))
+		try: #incase time is negative
+			time.sleep(1-(time.time()-s))
+		except:
+			pass
 		pbar.update(1)
-		pid += 1
+		start_id -= 1000
+	except Exception as e:
+		print('\n'+str(e))
+		time.sleep(60)
+		continue
 
-db.commit()
 c.close()
-print('\nfetched {} records, with {} requests'.format(len(seen), count/1000+1))
+print('\nFetched {} records, with {} requests, with {} errors'.format(len(seen), count/1000+1, error_num))
